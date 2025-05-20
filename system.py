@@ -3,4 +3,7 @@
 # criar um db para o sistema
 
 import sqlite3
-import 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
