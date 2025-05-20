@@ -73,7 +73,7 @@ def processar_e_exibir(metodo_pagamento, email=None):
             st.success('✅ Pagamento aprovado!')
             st.balloons()
         else:
-            st.error('!Pagamento recusado!')
+            st.error('🚫 Pagamento recusado')
 
         if email:
             enviar_email(email, 'Status do pagamento', f'Seu pagamento foi {metodo_pagamento.status}.')
