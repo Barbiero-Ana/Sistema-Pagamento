@@ -7,3 +7,16 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+conexao = sqlite3.connect('Usuarios.db')
+cursor = conexao.cursor()
+
+cursor.execute("""
+
+CREATE TABLE IF NO EXISTS Usuarios(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            Nome TEXT NOT NULL,
+            Email TEXT UNIQUE NOT NULL,
+            Idade INTEGER, 
+            Senha TEXT NOT NULL
+            )
+""")
