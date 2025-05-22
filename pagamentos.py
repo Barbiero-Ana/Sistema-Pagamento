@@ -63,7 +63,7 @@ class Paypal(Pagamento):
     def __init__(self, valor, usuario_login, email, senha):
         super().__init__(valor, usuario_login)
         self.email = email
-        self.senha = senha  # Não armazenar hash diretamente no objeto
+        self.senha = senha 
 
     def validar(self):
         import re
