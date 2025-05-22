@@ -12,18 +12,18 @@ from email.mime.multipart import MIMEMultipart
 import re
 from database import init_db, cadastrar_usuario, verificar_login, verificar_senha_mestra, listar_administradores, redefinir_senha_admin, carregar_transacoes, contar_usuarios, valor_total_movimentado, metodo_mais_utilizado, metodo_mais_aprovado, metodo_mais_negado, metodo_menos_utilizado
 from pagamentos import Cartao, Paypal, Transferencia, Pix, Cripto, system
+import sqlite3
 
-# Configuração inicial
+
 st.set_page_config(page_title='Sistema de Pagamentos', layout='wide')
 logging.basicConfig(filename='logs_erros.log', level=logging.ERROR)
 load_dotenv()
 gestormail = os.environ.get('gestor_mail')
 gestorpass = os.environ.get('gestor_password')
 
-# Inicializar banco de dados
 init_db()
 
-# Função de envio de e-mail
+# envio de emails
 def enviar_email(destinatario, assunto, corpo):
     if not destinatario:
         st.warning("Nenhum destinatário fornecido. E-mail não enviado.")
@@ -50,7 +50,7 @@ def enviar_email(destinatario, assunto, corpo):
         logging.error(f"Erro ao enviar e-mail para {destinatario}: {e}")
         st.error(f"Erro ao enviar e-mail: {e}")
 
-# Função para processar pagamento
+# processar o pagamento
 def processar_e_exibir(metodo_pagamento, email=None):
     try:
         with st.spinner('Processando...'):
@@ -70,12 +70,13 @@ def processar_e_exibir(metodo_pagamento, email=None):
         logging.error(f'Erro ao processar pagamento: {e}')
         st.error(f'Erro ao processar pagamento: {e}')
 
-# Gerenciamento de sessão
+# sessoes (usuarios)
 if 'usuario' not in st.session_state:
     st.session_state['usuario'] = None
     st.session_state['tipo_usuario'] = None
+    st.session_state['opcao_admin'] = 'Cadastrar Usuário'
 
-# Tela de login
+# login
 if not st.session_state['usuario']:
     st.title('Login')
     with st.form('login_form'):
@@ -95,17 +96,26 @@ if not st.session_state['usuario']:
 else:
     st.title('Sistema de Processamento de Pagamentos')
     st.write(f'Usuário: {st.session_state["usuario"]} ({st.session_state["tipo_usuario"]})')
-    if st.button('Sair'):
-        st.session_state['usuario'] = None
-        st.session_state['tipo_usuario'] = None
-        st.rerun()
 
-    # Sidebar para administradores
+    st.sidebar.header('Navegação')
+    if st.sidebar.button('Sair', key='logout_button'):
+        if st.session_state.get('confirm_logout', False):
+            logging.info(f'Usuário {st.session_state["usuario"]} realizou logout.')
+            st.session_state['usuario'] = None
+            st.session_state['tipo_usuario'] = None
+            st.session_state['confirm_logout'] = False
+            st.success('Logout realizado com sucesso!')
+            st.rerun()
+        else:
+            st.session_state['confirm_logout'] = True
+            st.sidebar.warning('Clique novamente para confirmar o logout.')
+
+    # adm
     if st.session_state['tipo_usuario'] == 'admin':
         st.sidebar.header('Gerenciamento')
-        opcao_admin = st.sidebar.selectbox('Selecione a Ação', ['Cadastrar Usuário', 'Dashboard Geral'])
+        st.session_state['opcao_admin'] = st.sidebar.selectbox('Selecione a Ação', ['Cadastrar Usuário', 'Dashboard Geral'], key='admin_action')
 
-        if opcao_admin == 'Cadastrar Usuário':
+        if st.session_state['opcao_admin'] == 'Cadastrar Usuário':
             st.sidebar.subheader('Cadastrar Novo Usuário')
             with st.sidebar.form('cadastro_form'):
                 novo_login = st.text_input('Novo Login')
@@ -127,7 +137,7 @@ else:
                     else:
                         st.warning('Preencha todos os campos.')
 
-        elif opcao_admin == 'Dashboard Geral':
+        elif st.session_state['opcao_admin'] == 'Dashboard Geral':
             st.sidebar.subheader('Filtros do Dashboard')
             with st.sidebar.form('filtro_dashboard'):
                 data_inicial = st.date_input('Data Inicial', value=datetime.date.today() - datetime.timedelta(days=30))
@@ -145,7 +155,7 @@ else:
                         'status_filtro': status_filtro
                     }
 
-    # Resumo geral para administradores
+    # adm
     if st.session_state['tipo_usuario'] == 'admin':
         st.header('Resumo Geral do Sistema')
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -156,13 +166,23 @@ else:
         col5.metric('Método Mais Negado', metodo_mais_negado())
         st.metric('Método Menos Utilizado', metodo_menos_utilizado())
 
-    # Dashboard para administradores
-    if st.session_state['tipo_usuario'] == 'admin' and st.session_state.get('opcao_admin', 'Cadastrar Usuário') == 'Dashboard Geral':
+    # adm
+    if st.session_state['tipo_usuario'] == 'admin' and st.session_state['opcao_admin'] == 'Dashboard Geral':
         st.header('Dashboard Geral')
-        df = carregar_transacoes()
+
+        conn = sqlite3.connect('pagamentos.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT login FROM usuarios')
+        usuarios = ['Todos os Usuários'] + [row[0] for row in cursor.fetchall()]
+        conn.close()
+        
+        usuario_selecionado = st.selectbox('Selecione o Usuário', usuarios, key='usuario_dashboard')
+        
+
+        df = carregar_transacoes(None if usuario_selecionado == 'Todos os Usuários' else usuario_selecionado)
         
         if not df.empty:
-            # Aplicar filtros
+
             filtros = st.session_state.get('filtros', {})
             data_inicial = filtros.get('data_inicial', df['data'].min().date())
             data_final = filtros.get('data_final', df['data'].max().date())
@@ -188,29 +208,28 @@ else:
                 st.subheader('Transações Filtradas')
                 st.dataframe(df_filtrado.sort_values('data', ascending=False), use_container_width=True)
                 
-                st.subheader('Análise por Usuário')
-                usuarios = df_filtrado['usuario_login'].unique()
-                usuario_selecionado = st.selectbox('Selecione o Usuário', usuarios)
-                df_usuario = df_filtrado[df_filtrado['usuario_login'] == usuario_selecionado]
-                
-                if not df_usuario.empty:
+                if usuario_selecionado != 'Todos os Usuários':
+                    st.subheader(f'Análise do Usuário: {usuario_selecionado}')
                     colu1, colu2, colu3 = st.columns(3)
-                    colu1.metric('Total Gasto', f'R$ {df_usuario["valor"].sum():.2f}')
-                    colu2.metric('Método Mais Usado', df_usuario['metodo'].mode()[0])
-                    colu3.metric('Transações', len(df_usuario))
+                    colu1.metric('Total Gasto', f'R$ {df_filtrado["valor"].sum():.2f}')
+                    colu2.metric('Método Mais Usado', df_filtrado['metodo'].mode()[0] if not df_filtrado['metodo'].empty else 'N/A')
+                    colu3.metric('Transações', len(df_filtrado))
                     
-                    fig_usuario = px.pie(df_usuario, names='metodo', values='valor', title=f'Distribuição por Método - {usuario_selecionado}')
+                    fig_usuario = px.pie(df_filtrado, names='metodo', values='valor', title=f'Distribuição por Método - {usuario_selecionado}')
                     st.plotly_chart(fig_usuario, use_container_width=True)
                 
                 st.subheader('Visualizações Gerais')
-                tipo_grafico = st.selectbox('Escolha o Tipo de Gráfico', ['Barra', 'Pizza', 'Area'])
+                tipo_grafico = st.selectbox('Escolha o Tipo de Gráfico', ['Barra', 'Pizza', 'Área', 'Linha'])
                 if tipo_grafico == 'Barra':
-                    fig = px.bar(df_filtrado.groupby('metodo')['valor'].sum().reset_index(), x='metodo', y='valor', title='Valor por Método')
+                    fig = px.bar(df_filtrado.groupby('metodo')['valor'].sum().reset_index(), x='metodo', y='valor', title='Valor Total por Método')
                 elif tipo_grafico == 'Pizza':
                     fig = px.pie(df_filtrado, names='metodo', values='valor', title='Distribuição por Método')
-                else:
+                elif tipo_grafico == 'Área':
                     df_filtrado_sorted = df_filtrado.sort_values('data').copy()
                     fig = px.area(df_filtrado_sorted, x='data', y='valor', color='metodo', title='Pagamentos Acumulados por Método')
+                elif tipo_grafico == 'Linha':
+                    df_filtrado_sorted = df_filtrado.sort_values('data').copy()
+                    fig = px.line(df_filtrado_sorted, x='data', y='valor', color='metodo', title='Pagamentos por Método ao Longo do Tempo')
                 st.plotly_chart(fig, use_container_width=True)
                 
                 buffer = io.BytesIO()
@@ -221,7 +240,6 @@ else:
         else:
             st.info('Nenhuma transação registrada.')
 
-    # Sidebar e dashboard para usuários normais
     if st.session_state['tipo_usuario'] == 'normal':
         st.sidebar.header('Novo Pagamento')
         metodo = st.sidebar.selectbox('Método', ['Cartão', 'Paypal', 'Transferência', 'Pix', 'Cripto'])
@@ -305,7 +323,7 @@ else:
                 else:
                     st.warning('Informe o endereço da carteira.')
 
-        # Dashboard para usuário normal
+
         st.header('Suas Transações')
         df = carregar_transacoes(st.session_state['usuario'])
         
@@ -338,14 +356,17 @@ else:
                 st.dataframe(df_filtrado.sort_values('data', ascending=False), use_container_width=True)
                 
                 st.subheader('Visualizações')
-                tipo_grafico = st.selectbox('Escolha o Tipo de Gráfico', ['Barra', 'Pizza', 'Area'])
+                tipo_grafico = st.selectbox('Escolha o Tipo de Gráfico', ['Barra', 'Pizza', 'Área', 'Linha'])
                 if tipo_grafico == 'Barra':
                     fig = px.bar(df_filtrado.groupby('metodo')['valor'].sum().reset_index(), x='metodo', y='valor', title='Valor por Método')
                 elif tipo_grafico == 'Pizza':
                     fig = px.pie(df_filtrado, names='metodo', values='valor', title='Distribuição por Método')
-                else:
+                elif tipo_grafico == 'Área':
                     df_filtrado_sorted = df_filtrado.sort_values('data').copy()
                     fig = px.area(df_filtrado_sorted, x='data', y='valor', color='metodo', title='Pagamentos Acumulados por Método')
+                elif tipo_grafico == 'Linha':
+                    df_filtrado_sorted = df_filtrado.sort_values('data').copy()
+                    fig = px.line(df_filtrado_sorted, x='data', y='valor', color='metodo', title='Pagamentos por Método ao Longo do Tempo')
                 st.plotly_chart(fig, use_container_width=True)
                 
                 buffer = io.BytesIO()

@@ -34,7 +34,7 @@ def init_db():
         )
     ''')
     
-    # Criar ou atualizar administrador padrão
+# administrador padrão
     admin_login = 'Adm@2025'
     admin_senha = bcrypt.hashpw('administrador@pgt'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     cursor.execute('''
@@ -58,7 +58,7 @@ def cadastrar_usuario(login, senha, tipo='normal'):
         conn.commit()
         return True
     except sqlite3.IntegrityError:
-        return False  # Login já existe
+        return False  
     finally:
         conn.close()
 
@@ -95,7 +95,7 @@ def redefinir_senha_admin(login, nova_senha, senha_mestra):
             ''', (nova_senha_hash, login))
             conn.commit()
             return True
-        return False  # Usuário não é admin ou não existe
+        return False  
     finally:
         conn.close()
 
