@@ -1,16 +1,14 @@
 import uuid
-import hashlib
 import random
-import csv
-import re
 import time
 import datetime
-
+from database import registrar_transacao
 
 class Pagamento:
-    def __init__(self, valor):
+    def __init__(self, valor, usuario_login):
         self.id = str(uuid.uuid4())
         self.valor = valor
+        self.usuario_login = usuario_login
         self.data = datetime.datetime.now()
         self.status = 'Pendente'
 
@@ -28,20 +26,18 @@ class Pagamento:
         return sucesso
 
     def registrar(self):
-        with open('pagamentos.csv', mode='a', newline='') as arquivo:
-            writer = csv.writer(arquivo)
-            writer.writerow([
-                self.id,
-                self.__class__.__name__,
-                self.valor,
-                self.data.strftime('%d-%m-%Y %H:%M:%S'),
-                self.status
-            ])
-
+        registrar_transacao(
+            id_transacao=self.id,
+            usuario_login=self.usuario_login,
+            metodo=self.__class__.__name__,
+            valor=self.valor,
+            data=self.data.strftime('%Y-%m-%d %H:%M:%S'),
+            status=self.status
+        )
 
 class Cartao(Pagamento):
-    def __init__(self, valor, numero, nome_titular, validade, cvv):
-        super().__init__(valor)
+    def __init__(self, valor, usuario_login, numero, nome_titular, validade, cvv):
+        super().__init__(valor, usuario_login)
         if len(cvv) not in [3, 4]:
             raise ValueError("CVV inválido.")
         self.numero = self._mascarar(numero)
@@ -55,82 +51,72 @@ class Cartao(Pagamento):
     def validar(self):
         try:
             mes, ano = map(int, self.validade.split('/'))
-            validade = datetime.datetime(2000 + ano, mes, 1)
-            if validade < datetime.datetime.now():
-                print('Cartão expirado.')
-                return False
+            ano = ano if ano > 999 else 2000 + ano
+            ultimo_dia = (datetime.datetime(ano, mes + 1, 1) - datetime.timedelta(days=1))
+            if ultimo_dia < datetime.datetime.now():
+                raise ValueError("Cartão expirado.")
             return True
-        except:
-            print("Formato de validade inválido.")
-            return False
-
+        except ValueError as e:
+            raise ValueError(f"Erro na validação do cartão: {str(e)}")
 
 class Paypal(Pagamento):
-    def __init__(self, valor, email, senha):
-        super().__init__(valor)
+    def __init__(self, valor, usuario_login, email, senha):
+        super().__init__(valor, usuario_login)
         self.email = email
-        self.senha = self._hash(senha)
-
-    def _hash(self, senha):
-        return hashlib.sha256(senha.encode()).hexdigest()
+        self.senha = senha  # Não armazenar hash diretamente no objeto
 
     def validar(self):
+        import re
         padrao = r"[^@]+@[^@]+\.[^@]+"
         if not re.match(padrao, self.email):
-            print('Email inválido...')
-            return False
+            raise ValueError("Email inválido.")
         return True
 
-
 class Transferencia(Pagamento):
-    def __init__(self, valor, banco, conta_origem, conta_destino):
-        super().__init__(valor)
+    def __init__(self, valor, usuario_login, banco, conta_origem, conta_destino):
+        super().__init__(valor, usuario_login)
         self.banco = banco
         self.conta_origem = conta_origem
         self.conta_destino = conta_destino
 
     def validar(self):
         if not (self.conta_origem.isdigit() and len(self.conta_origem) == 8):
-            print('Conta de origem inválida.')
-            return False
+            raise ValueError("Conta de origem inválida.")
         if not (self.conta_destino.isdigit() and len(self.conta_destino) == 8):
-            print('Conta de destino inválida.')
-            return False
+            raise ValueError("Conta de destino inválida.")
         return True
 
-
 class Pix(Pagamento):
-    def __init__(self, valor, chave):
-        super().__init__(valor)
+    def __init__(self, valor, usuario_login, chave):
+        super().__init__(valor, usuario_login)
         self.chave = chave
 
     def validar(self):
+        import re
         if '@' in self.chave:
+            padrao = r"[^@]+@[^@]+\.[^@]+"
+            if not re.match(padrao, self.chave):
+                raise ValueError("Chave Pix (email) inválida.")
             return True
-        elif self.chave.isdigit() and len(self.chave) in [11, 14]:  # CPF ou CNPJ
+        elif self.chave.isdigit() and len(self.chave) in [11, 14]:
             return True
         elif len(self.chave) >= 8:
             return True
         else:
-            print('Chave Pix inválida.')
-            return False
-
+            raise ValueError("Chave Pix inválida.")
 
 class Cripto(Pagamento):
-    def __init__(self, valor, carteira, criptomoeda):
-        super().__init__(valor)
+    def __init__(self, valor, usuario_login, carteira, criptomoeda):
+        super().__init__(valor, usuario_login)
         self.carteira = carteira
         self.criptomoeda = criptomoeda.lower()
 
     def validar(self):
         if not self.carteira or len(self.carteira) < 10:
-            print('Endereço da carteira inválido.')
-            return False
+            raise ValueError("Endereço da carteira inválido.")
         if self.criptomoeda not in ['btc', 'eth', 'usdt']:
-            print('Criptomoeda não suportada ou válida.')
-            return False
+            raise ValueError("Criptomoeda não suportada ou válida.")
         return True
-
 
 def system(metodo: Pagamento):
     print(f'Processando pagamento de R$ {metodo.valor:.2f} via {metodo.__class__.__name__}...')
@@ -139,13 +125,3 @@ def system(metodo: Pagamento):
     else:
         print('Pagamento recusado.')
     metodo.registrar()
-
-
-# pag1 = Cartao(300.00, '4111111111111111', 'Ana Barbiero', '12/38', '123')
-# pag2 = Paypal(150.00, 'ana@email.com', 'senha123')
-# pag3 = Transferencia(420.00, 'Banco XYZ', '12345678', '87654321')
-# pag4 = Pix(85.00, 'ana@email.com')
-# pag5 = Cripto(999.00, '0xABCDEF1234567890', 'BTC')
-
-# for pagamento in [pag1, pag2, pag3, pag4, pag5]:
-#     system(pagamento)
