@@ -108,6 +108,86 @@ def listar_administradores():
     conn.close()
     return admins
 
+def contar_usuarios():
+    conn = sqlite3.connect('pagamentos.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT COUNT(*) FROM usuarios')
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+def valor_total_movimentado():
+    conn = sqlite3.connect('pagamentos.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT SUM(valor) FROM transacoes')
+    total = cursor.fetchone()[0] or 0.0
+    conn.close()
+    return total
+
+def metodo_mais_utilizado():
+    conn = sqlite3.connect('pagamentos.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT metodo, COUNT(*) as count 
+        FROM transacoes 
+        GROUP BY metodo 
+        ORDER BY count DESC 
+        LIMIT 1
+    ''')
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else 'N/A'
+
+def metodo_mais_aprovado():
+    conn = sqlite3.connect('pagamentos.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT metodo, COUNT(*) as count 
+        FROM transacoes 
+        WHERE status = 'Aprovado' 
+        GROUP BY metodo 
+        ORDER BY count DESC 
+        LIMIT 1
+    ''')
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else 'N/A'
+
+def metodo_mais_negado():
+    conn = sqlite3.connect('pagamentos.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT metodo, COUNT(*) as count 
+        FROM transacoes 
+        WHERE status = 'Recusado' 
+        GROUP BY metodo 
+        ORDER BY count DESC 
+        LIMIT 1
+    ''')
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else 'N/A'
+
+def metodo_menos_utilizado():
+    conn = sqlite3.connect('pagamentos.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT metodo, COUNT(*) as count 
+        FROM transacoes 
+        GROUP BY metodo 
+        ORDER BY count ASC 
+        LIMIT 1
+    ''')
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else 'N/A'
+
 def registrar_transacao(id_transacao, usuario_login, metodo, valor, data, status):
     conn = sqlite3.connect('pagamentos.db')
     cursor = conn.cursor()
